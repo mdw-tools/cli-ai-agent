@@ -9,11 +9,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/mdw-tools/cli-ai-agent/pretty"
 )
 
 var Version = "dev"
@@ -150,6 +151,11 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 }
 
 func (this *Agent) processOneResponse() (shouldContinue bool, err error) {
+	// Start spinner while waiting for response
+	spinner := pretty.NewSpinner("Waiting for response...")
+	spinner.Start()
+	defer spinner.Stop()
+
 	req := OllamaRequest{
 		Model:    this.model,
 		Messages: this.conversation,
@@ -189,6 +195,8 @@ func (this *Agent) processOneResponse() (shouldContinue bool, err error) {
 	var contentDisplayed bool
 
 	for scanner.Scan() {
+		spinner.Stop()
+
 		line := scanner.Text()
 		if line == "" {
 			continue
@@ -237,6 +245,7 @@ func (this *Agent) processOneResponse() (shouldContinue bool, err error) {
 	}
 
 	if err := scanner.Err(); err != nil {
+		spinner.Stop()
 		return false, fmt.Errorf("error reading stream: %v", err)
 	}
 
@@ -279,6 +288,8 @@ func (this *Agent) processOneResponse() (shouldContinue bool, err error) {
 		fmt.Println("## Result of tool call:", toolName)
 		fmt.Println()
 		fmt.Println(result)
+		fmt.Println()
+		fmt.Println(strings.Repeat("#", 80))
 
 		this.conversation = append(this.conversation, Message{
 			Role:    "tool",
