@@ -103,10 +103,11 @@ func (this *Agent) RegisterTool(tool Tool) {
 func (this *Agent) getToolDefinitions() (results []ToolCall) {
 	for _, tool := range this.tools {
 		results = append(results, ToolCall{
+			Type: "function",
 			Function: ToolFunction{
 				Name:        tool.Name(),
 				Description: tool.Description(),
-				Arguments:   tool.Parameters(),
+				Parameters:  tool.Parameters(),
 			},
 		})
 	}
@@ -128,10 +129,10 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 	})
 
 	req := OllamaRequest{
-		Model:     this.model,
-		Messages:  this.conversation,
-		Stream:    false,
-		ToolCalls: this.getToolDefinitions(),
+		Model:    this.model,
+		Messages: this.conversation,
+		Stream:   false,
+		Tools:    this.getToolDefinitions(),
 	}
 
 	jsonData, err := json.Marshal(req)
@@ -229,10 +230,10 @@ type Message struct {
 
 // OllamaRequest represents the request to Ollama API
 type OllamaRequest struct {
-	Model     string     `json:"model,omitempty"`
-	Messages  []Message  `json:"messages,omitempty"`
-	Stream    bool       `json:"stream"` // TODO: rework to utilize streaming (and visualize 'thinking' vs 'content'
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Model    string     `json:"model,omitempty"`
+	Messages []Message  `json:"messages,omitempty"`
+	Stream   bool       `json:"stream"` // TODO: rework to utilize streaming (and visualize 'thinking' vs 'content'
+	Tools    []ToolCall `json:"tools,omitempty"`
 }
 
 // OllamaResponse represents the response from Ollama API
@@ -245,11 +246,13 @@ type OllamaResponse struct {
 
 // ToolCall represents a tool call in the message
 type ToolCall struct {
+	Type     string       `json:"type,omitempty"`
 	Function ToolFunction `json:"function,omitempty"`
 }
 type ToolFunction struct {
 	Name        string                 `json:"name,omitempty"`
 	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 	Arguments   map[string]interface{} `json:"arguments,omitempty"`
 }
 
