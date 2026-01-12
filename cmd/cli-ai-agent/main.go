@@ -169,12 +169,12 @@ func (this *Agent) processOneResponse() (shouldContinue bool, err error) {
 	}
 	request.Header.Set("Content-Type", "application/json")
 
-	requestDump, err := httputil.DumpRequestOut(request, false)
-	if err != nil {
-		return false, err
-	}
-	fmt.Println(strings.Repeat("#", 80))
-	log.Printf("Request dump:\n%s\n\n%s", requestDump, jsonData)
+	// requestDump, err := httputil.DumpRequestOut(request, false)
+	// if err != nil {
+	// 	return false, err
+	// }
+	// fmt.Println(strings.Repeat("#", 80))
+	// log.Printf("Request dump:\n%s\n\n%s", requestDump, jsonData)
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
