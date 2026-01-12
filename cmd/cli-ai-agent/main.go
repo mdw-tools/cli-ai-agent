@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -134,7 +133,7 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 	req := OllamaRequest{
 		Model:    this.model,
 		Messages: this.conversation,
-		Stream:   false,
+		Stream:   true,
 		Tools:    this.getToolDefinitions(),
 	}
 
@@ -163,29 +162,72 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	responseDump, err := httputil.DumpResponse(response, true)
-	if err != nil {
-		return err
-	}
 	fmt.Println(strings.Repeat("#", 80))
-	log.Printf("Response dump:\n%s", responseDump)
 
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return err
+	// Handle streaming response
+	scanner := bufio.NewScanner(response.Body)
+	var finalMessage Message
+	var thinkingDisplayed bool
+	var contentDisplayed bool
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var chunk OllamaResponse
+		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+			log.Printf("Error parsing chunk: %v\n", err)
+			continue
+		}
+
+		// Display thinking if present
+		if chunk.Message.Thinking != "" {
+			if !thinkingDisplayed {
+				fmt.Print("\n💭 Thinking: ")
+				thinkingDisplayed = true
+			}
+			fmt.Print(chunk.Message.Thinking)
+			finalMessage.Thinking += chunk.Message.Thinking
+		}
+
+		// Display content if present
+		if chunk.Message.Content != "" {
+			if !contentDisplayed {
+				if thinkingDisplayed {
+					fmt.Println() // New line after thinking
+				}
+				fmt.Print("\n🤖 Assistant: ")
+				contentDisplayed = true
+			}
+			fmt.Print(chunk.Message.Content)
+			finalMessage.Content += chunk.Message.Content
+		}
+
+		// Accumulate other fields
+		if chunk.Message.Role != "" {
+			finalMessage.Role = chunk.Message.Role
+		}
+		if len(chunk.Message.ToolCalls) > 0 {
+			finalMessage.ToolCalls = chunk.Message.ToolCalls
+		}
+
+		if chunk.Done {
+			break
+		}
 	}
 
-	var ollamaResp OllamaResponse
-	if err := json.Unmarshal(body, &ollamaResp); err != nil {
-		return err
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading stream: %v", err)
 	}
 
+	fmt.Println() // New line after output
 	fmt.Println(strings.Repeat("#", 80))
-	fmt.Printf("\n🤖 Assistant: %s\n", ollamaResp.Message.Content)
 
-	this.conversation = append(this.conversation, ollamaResp.Message)
+	this.conversation = append(this.conversation, finalMessage)
 
-	for _, toolCall := range ollamaResp.Message.ToolCalls {
+	for _, toolCall := range finalMessage.ToolCalls {
 		toolName := toolCall.Function.Name
 		tool, exists := this.tools[toolName]
 		if !exists {
@@ -340,19 +382,19 @@ func (this *WriteFileTool) Parameters() map[string]interface{} {
 func (this *WriteFileTool) Execute(params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
 	if !ok {
-		return "", fmt.Errorf("path parameter must be a string")
+		return "", errors.New("path parameter must be a string")
 	}
 	search, ok := params["search"].(string)
 	if !ok {
-		return "", fmt.Errorf("search parameter must be a string")
+		return "", errors.New("search parameter must be a string")
 	}
 	replace, ok := params["content"].(string)
 	if !ok {
-		return "", fmt.Errorf("content parameter must be a string")
+		return "", errors.New("content parameter must be a string")
 	}
 	fmt.Println("reading file:", path)
 	raw, err := os.ReadFile(path)
-	if !errors.Is(err, os.ErrNotExist) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
 	content := strings.ReplaceAll(string(raw), search, replace)
