@@ -555,6 +555,10 @@ func (this *ListTreeTool) walkTree(path, prefix string, depth, maxDepth int, res
 	if depth > maxDepth {
 		return nil
 	}
+	base := filepath.Base(path)
+	if base == ".git" || base == ".idea" || base == ".claude" {
+		return nil
+	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return err
