@@ -119,7 +119,10 @@ func (this *Agent) getToolDefinitions() (results []ToolCall) {
 func (this *Agent) askPermission(toolName string, params map[string]interface{}) bool {
 	fmt.Println(strings.Repeat("#", 80))
 	fmt.Printf("\n⚠️  The AI wants to execute: %s\n", toolName)
-	fmt.Printf("Parameters: %v\n", params)
+	fmt.Println("Parameters:")
+	for k, v := range params {
+		fmt.Printf("  %s: %v\n", k, v)
+	}
 	fmt.Print("Allow? (y/N): ")
 	response := strings.TrimSpace(strings.ToLower(readInput()))
 	return response == "y" || response == "yes"
