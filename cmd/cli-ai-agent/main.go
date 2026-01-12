@@ -53,6 +53,8 @@ func main() {
 	agent.RegisterTool(&ExecutePythonTool{})
 
 	for {
+		fmt.Println(strings.Repeat("#", 80))
+
 		fmt.Print("You: ")
 		input := readInput()
 		if input == "" {
@@ -115,11 +117,12 @@ func (this *Agent) getToolDefinitions() (results []ToolCall) {
 }
 
 func (this *Agent) askPermission(toolName string, params map[string]interface{}) bool {
+	fmt.Println(strings.Repeat("#", 80))
 	fmt.Printf("\n⚠️  The AI wants to execute: %s\n", toolName)
 	fmt.Printf("Parameters: %v\n", params)
-	fmt.Print("Allow? (yes/no): ")
+	fmt.Print("Allow? (y/N): ")
 	response := strings.TrimSpace(strings.ToLower(readInput()))
-	return response == "yes" || response == "y"
+	return response == "y" || response == "yes"
 }
 
 func (this *Agent) ProcessMessage(userMessage string) error {
@@ -151,6 +154,7 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(strings.Repeat("#", 80))
 	log.Printf("Request dump:\n%s", requestDump)
 
 	response, err := http.DefaultClient.Do(request)
@@ -163,6 +167,7 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(strings.Repeat("#", 80))
 	log.Printf("Response dump:\n%s", responseDump)
 
 	body, err := io.ReadAll(response.Body)
@@ -175,6 +180,7 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 		return err
 	}
 
+	fmt.Println(strings.Repeat("#", 80))
 	fmt.Printf("\n🤖 Assistant: %s\n", ollamaResp.Message.Content)
 
 	this.conversation = append(this.conversation, ollamaResp.Message)
@@ -198,11 +204,16 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 			}
 		}
 
+		fmt.Println(strings.Repeat("#", 80))
 		fmt.Printf("🔧 Executing tool: %s\n", toolName)
 		result, err := tool.Execute(toolCall.Function.Arguments)
 		if err != nil {
 			result = fmt.Sprintf("Error: %v", err)
 		}
+		fmt.Println(strings.Repeat("#", 80))
+		fmt.Println("## Result of tool call:", toolName)
+		fmt.Println()
+		fmt.Println(result)
 
 		this.conversation = append(this.conversation, Message{
 			Role:    "tool",
@@ -339,13 +350,16 @@ func (this *WriteFileTool) Execute(params map[string]interface{}) (string, error
 	if !ok {
 		return "", fmt.Errorf("content parameter must be a string")
 	}
+	fmt.Println("reading file:", path)
 	raw, err := os.ReadFile(path)
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	content := string(raw)
-	content = strings.ReplaceAll(content, search, replace)
+	content := strings.ReplaceAll(string(raw), search, replace)
+	fmt.Println("writing file:", path)
 	err = os.WriteFile(path, []byte(content), 0644)
+	fmt.Println("Length of old:", len(string(raw)))
+	fmt.Println("Length of new:", len(content))
 	return content, err
 }
 func (this *WriteFileTool) RequiresPermission() bool { return true }
