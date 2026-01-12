@@ -96,12 +96,12 @@ func NewAgent(model, ollamaURL string) *Agent {
 	}
 }
 
-func (a *Agent) RegisterTool(tool Tool) {
-	a.tools[tool.Name()] = tool
+func (this *Agent) RegisterTool(tool Tool) {
+	this.tools[tool.Name()] = tool
 }
 
-func (a *Agent) getToolDefinitions() (results []ToolCall) {
-	for _, tool := range a.tools {
+func (this *Agent) getToolDefinitions() (results []ToolCall) {
+	for _, tool := range this.tools {
 		results = append(results, ToolCall{
 			Function: ToolFunction{
 				Name:        tool.Name(),
@@ -113,7 +113,7 @@ func (a *Agent) getToolDefinitions() (results []ToolCall) {
 	return results
 }
 
-func (a *Agent) askPermission(toolName string, params map[string]interface{}) bool {
+func (this *Agent) askPermission(toolName string, params map[string]interface{}) bool {
 	fmt.Printf("\n⚠️  The AI wants to execute: %s\n", toolName)
 	fmt.Printf("Parameters: %v\n", params)
 	fmt.Print("Allow? (yes/no): ")
@@ -121,17 +121,17 @@ func (a *Agent) askPermission(toolName string, params map[string]interface{}) bo
 	return response == "yes" || response == "y"
 }
 
-func (a *Agent) ProcessMessage(userMessage string) error {
-	a.conversation = append(a.conversation, Message{
+func (this *Agent) ProcessMessage(userMessage string) error {
+	this.conversation = append(this.conversation, Message{
 		Role:    "user",
 		Content: userMessage,
 	})
 
 	req := OllamaRequest{
-		Model:     a.model,
-		Messages:  a.conversation,
+		Model:     this.model,
+		Messages:  this.conversation,
 		Stream:    false,
-		ToolCalls: a.getToolDefinitions(),
+		ToolCalls: this.getToolDefinitions(),
 	}
 
 	jsonData, err := json.Marshal(req)
@@ -140,7 +140,7 @@ func (a *Agent) ProcessMessage(userMessage string) error {
 	}
 
 	// TODO: implement retry
-	request, err := http.NewRequest("POST", a.ollamaURL+"/api/chat", bytes.NewReader(jsonData))
+	request, err := http.NewRequest("POST", this.ollamaURL+"/api/chat", bytes.NewReader(jsonData))
 	if err != nil {
 		return err
 	}
@@ -176,11 +176,11 @@ func (a *Agent) ProcessMessage(userMessage string) error {
 
 	fmt.Printf("\n🤖 Assistant: %s\n", ollamaResp.Message.Content)
 
-	a.conversation = append(a.conversation, ollamaResp.Message)
+	this.conversation = append(this.conversation, ollamaResp.Message)
 
 	for _, toolCall := range ollamaResp.Message.ToolCalls {
 		toolName := toolCall.Function.Name
-		tool, exists := a.tools[toolName]
+		tool, exists := this.tools[toolName]
 		if !exists {
 			log.Println("🤖 response refers to unknown tool:", toolName)
 			continue
@@ -188,8 +188,8 @@ func (a *Agent) ProcessMessage(userMessage string) error {
 
 		// Check if permission is required
 		if tool.RequiresPermission() {
-			if !a.askPermission(toolName, toolCall.Function.Arguments) {
-				a.conversation = append(a.conversation, Message{
+			if !this.askPermission(toolName, toolCall.Function.Arguments) {
+				this.conversation = append(this.conversation, Message{
 					Role:    "tool",
 					Content: fmt.Sprintf("Permission denied for %s", toolName),
 				})
@@ -203,7 +203,7 @@ func (a *Agent) ProcessMessage(userMessage string) error {
 			result = fmt.Sprintf("Error: %v", err)
 		}
 
-		a.conversation = append(a.conversation, Message{
+		this.conversation = append(this.conversation, Message{
 			Role:    "tool",
 			Content: result,
 		})
@@ -267,11 +267,11 @@ type Tool interface {
 // ReadFileTool implements file reading
 type ReadFileTool struct{}
 
-func (t *ReadFileTool) Name() string { return "read_file" }
-func (t *ReadFileTool) Description() string {
+func (this *ReadFileTool) Name() string { return "read_file" }
+func (this *ReadFileTool) Description() string {
 	return "Read the contents of a file"
 }
-func (t *ReadFileTool) Parameters() map[string]interface{} {
+func (this *ReadFileTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -283,8 +283,8 @@ func (t *ReadFileTool) Parameters() map[string]interface{} {
 		"required": []string{"path"},
 	}
 }
-func (t *ReadFileTool) RequiresPermission() bool { return false }
-func (t *ReadFileTool) Execute(params map[string]interface{}) (string, error) {
+func (this *ReadFileTool) RequiresPermission() bool { return false }
+func (this *ReadFileTool) Execute(params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
 	if !ok {
 		return "", fmt.Errorf("path parameter must be a string")
@@ -350,11 +350,11 @@ func (this *WriteFileTool) RequiresPermission() bool { return true }
 // ListDirectoryTool implements directory listing
 type ListDirectoryTool struct{}
 
-func (t *ListDirectoryTool) Name() string { return "list_directory" }
-func (t *ListDirectoryTool) Description() string {
+func (this *ListDirectoryTool) Name() string { return "list_directory" }
+func (this *ListDirectoryTool) Description() string {
 	return "List files and directories in a given path"
 }
-func (t *ListDirectoryTool) Parameters() map[string]interface{} {
+func (this *ListDirectoryTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -366,8 +366,8 @@ func (t *ListDirectoryTool) Parameters() map[string]interface{} {
 		"required": []string{"path"},
 	}
 }
-func (t *ListDirectoryTool) RequiresPermission() bool { return false }
-func (t *ListDirectoryTool) Execute(params map[string]interface{}) (string, error) {
+func (this *ListDirectoryTool) RequiresPermission() bool { return false }
+func (this *ListDirectoryTool) Execute(params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
 	if !ok {
 		return "", fmt.Errorf("path parameter must be a string")
@@ -391,11 +391,11 @@ func (t *ListDirectoryTool) Execute(params map[string]interface{}) (string, erro
 // ListTreeTool implements recursive directory tree listing
 type ListTreeTool struct{}
 
-func (t *ListTreeTool) Name() string { return "list_tree" }
-func (t *ListTreeTool) Description() string {
+func (this *ListTreeTool) Name() string { return "list_tree" }
+func (this *ListTreeTool) Description() string {
 	return "List all files and directories recursively in a tree structure"
 }
-func (t *ListTreeTool) Parameters() map[string]interface{} {
+func (this *ListTreeTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -411,8 +411,8 @@ func (t *ListTreeTool) Parameters() map[string]interface{} {
 		"required": []string{"path"},
 	}
 }
-func (t *ListTreeTool) RequiresPermission() bool { return false }
-func (t *ListTreeTool) Execute(params map[string]interface{}) (string, error) {
+func (this *ListTreeTool) RequiresPermission() bool { return false }
+func (this *ListTreeTool) Execute(params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
 	if !ok {
 		return "", fmt.Errorf("path parameter must be a string")
@@ -422,13 +422,13 @@ func (t *ListTreeTool) Execute(params map[string]interface{}) (string, error) {
 		maxDepth = int(d)
 	}
 	var result strings.Builder
-	err := t.walkTree(path, "", 0, maxDepth, &result)
+	err := this.walkTree(path, "", 0, maxDepth, &result)
 	if err != nil {
 		return "", err
 	}
 	return result.String(), nil
 }
-func (t *ListTreeTool) walkTree(path, prefix string, depth, maxDepth int, result *strings.Builder) error {
+func (this *ListTreeTool) walkTree(path, prefix string, depth, maxDepth int, result *strings.Builder) error {
 	if depth > maxDepth {
 		return nil
 	}
@@ -450,7 +450,7 @@ func (t *ListTreeTool) walkTree(path, prefix string, depth, maxDepth int, result
 			} else {
 				newPrefix += "│   "
 			}
-			err = t.walkTree(filepath.Join(path, entry.Name()), newPrefix, depth+1, maxDepth, result)
+			err = this.walkTree(filepath.Join(path, entry.Name()), newPrefix, depth+1, maxDepth, result)
 			if err != nil {
 				return err
 			}
@@ -464,11 +464,11 @@ func (t *ListTreeTool) walkTree(path, prefix string, depth, maxDepth int, result
 // RunCommandTool implements shell command execution
 type RunCommandTool struct{}
 
-func (t *RunCommandTool) Name() string { return "run_command" }
-func (t *RunCommandTool) Description() string {
+func (this *RunCommandTool) Name() string { return "run_command" }
+func (this *RunCommandTool) Description() string {
 	return "Execute a shell command and return its output"
 }
-func (t *RunCommandTool) Parameters() map[string]interface{} {
+func (this *RunCommandTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -480,8 +480,8 @@ func (t *RunCommandTool) Parameters() map[string]interface{} {
 		"required": []string{"command"},
 	}
 }
-func (t *RunCommandTool) RequiresPermission() bool { return true }
-func (t *RunCommandTool) Execute(params map[string]interface{}) (string, error) {
+func (this *RunCommandTool) RequiresPermission() bool { return true }
+func (this *RunCommandTool) Execute(params map[string]interface{}) (string, error) {
 	command, ok := params["command"].(string)
 	if !ok {
 		return "", fmt.Errorf("command parameter must be a string")
@@ -497,11 +497,11 @@ func (t *RunCommandTool) Execute(params map[string]interface{}) (string, error) 
 // ExecutePythonTool implements Python script execution
 type ExecutePythonTool struct{}
 
-func (t *ExecutePythonTool) Name() string { return "execute_python" }
-func (t *ExecutePythonTool) Description() string {
+func (this *ExecutePythonTool) Name() string { return "execute_python" }
+func (this *ExecutePythonTool) Description() string {
 	return "Execute a Python script and return its output"
 }
-func (t *ExecutePythonTool) Parameters() map[string]interface{} {
+func (this *ExecutePythonTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -513,8 +513,8 @@ func (t *ExecutePythonTool) Parameters() map[string]interface{} {
 		"required": []string{"script"},
 	}
 }
-func (t *ExecutePythonTool) RequiresPermission() bool { return true }
-func (t *ExecutePythonTool) Execute(params map[string]interface{}) (string, error) {
+func (this *ExecutePythonTool) RequiresPermission() bool { return true }
+func (this *ExecutePythonTool) Execute(params map[string]interface{}) (string, error) {
 	script, ok := params["script"].(string)
 	if !ok {
 		return "", fmt.Errorf("script parameter must be a string")
