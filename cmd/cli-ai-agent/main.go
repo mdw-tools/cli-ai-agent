@@ -130,6 +130,22 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 		Content: userMessage,
 	})
 
+	// Agentic loop: continue making requests as long as tools are being called
+	maxIterations := 10
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		shouldContinue, err := this.processOneResponse()
+		if err != nil {
+			return err
+		}
+		if !shouldContinue {
+			break
+		}
+		fmt.Printf("\n[Continuing agentic loop, iteration %d/%d]\n", iteration+2, maxIterations)
+	}
+	return nil
+}
+
+func (this *Agent) processOneResponse() (shouldContinue bool, err error) {
 	req := OllamaRequest{
 		Model:    this.model,
 		Messages: this.conversation,
@@ -137,32 +153,30 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 		Tools:    this.getToolDefinitions(),
 	}
 
-	jsonData, err := json.Marshal(req)
+	jsonData, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// TODO: implement retry
 	request, err := http.NewRequest("POST", this.ollamaURL+"/api/chat", bytes.NewReader(jsonData))
 	if err != nil {
-		return err
+		return false, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 
-	requestDump, err := httputil.DumpRequestOut(request, true)
+	requestDump, err := httputil.DumpRequestOut(request, false)
 	if err != nil {
-		return err
+		return false, err
 	}
 	fmt.Println(strings.Repeat("#", 80))
-	log.Printf("Request dump:\n%s", requestDump)
+	log.Printf("Request dump:\n%s\n\n%s", requestDump, jsonData)
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = response.Body.Close() }()
-
-	fmt.Println(strings.Repeat("#", 80))
 
 	// Handle streaming response
 	scanner := bufio.NewScanner(response.Body)
@@ -219,13 +233,17 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading stream: %v", err)
+		return false, fmt.Errorf("error reading stream: %v", err)
 	}
 
 	fmt.Println() // New line after output
 	fmt.Println(strings.Repeat("#", 80))
 
 	this.conversation = append(this.conversation, finalMessage)
+
+	// Track tool execution for agentic loop
+	var toolsExecuted int
+	var anyToolRequiredPermission bool
 
 	for _, toolCall := range finalMessage.ToolCalls {
 		toolName := toolCall.Function.Name
@@ -237,6 +255,7 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 
 		// Check if permission is required
 		if tool.RequiresPermission() {
+			anyToolRequiredPermission = true
 			if !this.askPermission(toolName, toolCall.Function.Arguments) {
 				this.conversation = append(this.conversation, Message{
 					Role:    "tool",
@@ -261,8 +280,12 @@ func (this *Agent) ProcessMessage(userMessage string) error {
 			Role:    "tool",
 			Content: result,
 		})
+		toolsExecuted++
 	}
-	return nil
+
+	// Continue agentic loop if tools were executed and none required permission
+	shouldContinue = toolsExecuted > 0 && !anyToolRequiredPermission
+	return shouldContinue, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -284,9 +307,9 @@ type Message struct {
 // OllamaRequest represents the request to Ollama API
 type OllamaRequest struct {
 	Model    string     `json:"model,omitempty"`
-	Messages []Message  `json:"messages,omitempty"`
 	Stream   bool       `json:"stream"` // TODO: rework to utilize streaming (and visualize 'thinking' vs 'content'
 	Tools    []ToolCall `json:"tools,omitempty"`
+	Messages []Message  `json:"messages,omitempty"`
 }
 
 // OllamaResponse represents the response from Ollama API
@@ -384,8 +407,9 @@ func (this *WriteFileTool) Execute(params map[string]interface{}) (string, error
 	if !ok {
 		return "", errors.New("path parameter must be a string")
 	}
-	search, ok := params["search"].(string)
-	if !ok {
+	rawSearch, searchPresent := params["search"]
+	search, ok := rawSearch.(string)
+	if searchPresent && !ok {
 		return "", errors.New("search parameter must be a string")
 	}
 	replace, ok := params["content"].(string)
@@ -397,6 +421,7 @@ func (this *WriteFileTool) Execute(params map[string]interface{}) (string, error
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
+	fmt.Println("Contains search?", strings.Contains(string(raw), search))
 	content := strings.ReplaceAll(string(raw), search, replace)
 	fmt.Println("writing file:", path)
 	err = os.WriteFile(path, []byte(content), 0644)
@@ -428,8 +453,8 @@ func (this *ListDirectoryTool) Parameters() map[string]interface{} {
 func (this *ListDirectoryTool) RequiresPermission() bool { return false }
 func (this *ListDirectoryTool) Execute(params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
-	if !ok {
-		return "", fmt.Errorf("path parameter must be a string")
+	if !ok || path == "" {
+		return "", fmt.Errorf("path parameter must be a non-empty string")
 	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -473,8 +498,8 @@ func (this *ListTreeTool) Parameters() map[string]interface{} {
 func (this *ListTreeTool) RequiresPermission() bool { return false }
 func (this *ListTreeTool) Execute(params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
-	if !ok {
-		return "", fmt.Errorf("path parameter must be a string")
+	if !ok || path == "" {
+		return "", fmt.Errorf("path parameter must be a non-empty string")
 	}
 	maxDepth := 5
 	if d, ok := params["max_depth"].(float64); ok {
@@ -542,8 +567,8 @@ func (this *RunCommandTool) Parameters() map[string]interface{} {
 func (this *RunCommandTool) RequiresPermission() bool { return true }
 func (this *RunCommandTool) Execute(params map[string]interface{}) (string, error) {
 	command, ok := params["command"].(string)
-	if !ok {
-		return "", fmt.Errorf("command parameter must be a string")
+	if !ok || command == "" {
+		return "", fmt.Errorf("command parameter must be a non-empty string")
 	}
 	cmd := exec.Command("sh", "-c", command)
 	output, err := cmd.CombinedOutput()
@@ -575,8 +600,8 @@ func (this *ExecutePythonTool) Parameters() map[string]interface{} {
 func (this *ExecutePythonTool) RequiresPermission() bool { return true }
 func (this *ExecutePythonTool) Execute(params map[string]interface{}) (string, error) {
 	script, ok := params["script"].(string)
-	if !ok {
-		return "", fmt.Errorf("script parameter must be a string")
+	if !ok || script == "" {
+		return "", fmt.Errorf("script parameter must be a non-empty string")
 	}
 	cmd := exec.Command("python3", "-c", script)
 	output, err := cmd.CombinedOutput()
