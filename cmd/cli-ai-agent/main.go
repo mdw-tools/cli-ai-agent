@@ -4,17 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/mdw-tools/cli-ai-agent/pretty"
+	"github.com/mdw-tools/cli-ai-agent/tools"
 )
 
 var Version = "dev"
@@ -45,13 +44,13 @@ func main() {
 	log.Printf("Config: %#v", config)
 
 	agent := NewAgent(config.Model, config.OllamaURL)
-	agent.RegisterTool(&ReadFileTool{})
-	agent.RegisterTool(&WriteFileTool{})
-	agent.RegisterTool(&ModifyFileTool{})
-	agent.RegisterTool(&ListDirectoryTool{})
-	agent.RegisterTool(&ListTreeTool{})
-	agent.RegisterTool(&RunCommandTool{})
-	agent.RegisterTool(&ExecutePythonTool{})
+	agent.RegisterTool(&tools.ReadFileTool{})
+	agent.RegisterTool(&tools.WriteFileTool{})
+	agent.RegisterTool(&tools.ModifyFileTool{})
+	agent.RegisterTool(&tools.ListDirectoryTool{})
+	agent.RegisterTool(&tools.ListTreeTool{})
+	agent.RegisterTool(&tools.RunCommandTool{})
+	agent.RegisterTool(&tools.ExecutePythonTool{})
 
 	for {
 		fmt.Println(strings.Repeat("#", 80))
@@ -82,6 +81,15 @@ func main() {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+
+// Tool interface that all tools must implement
+type Tool interface {
+	Name() string
+	Description() string
+	Parameters() map[string]interface{}
+	Execute(params map[string]interface{}) (string, error)
+	RequiresPermission() bool
+}
 
 // Agent manages the conversation and tool execution
 type Agent struct {
@@ -124,9 +132,9 @@ func (this *Agent) askPermission(toolName string, params map[string]interface{})
 	for k, v := range params {
 		fmt.Printf("  %s: %v\n", k, v)
 	}
-	fmt.Print("Allow? (y/N): ")
+	fmt.Print("Allow? (Y/n): ")
 	response := strings.TrimSpace(strings.ToLower(readInput()))
-	return response == "y" || response == "yes"
+	return response == "" || response == "y" || response == "yes"
 }
 
 func (this *Agent) ProcessMessage(userMessage string) error {
@@ -345,322 +353,4 @@ type ToolFunction struct {
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 	Arguments   map[string]interface{} `json:"arguments,omitempty"`
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-// Tool interface that all tools must implement
-type Tool interface {
-	Name() string
-	Description() string
-	Parameters() map[string]interface{}
-	Execute(params map[string]interface{}) (string, error)
-	RequiresPermission() bool
-}
-
-// ReadFileTool implements file reading
-type ReadFileTool struct{}
-
-func (this *ReadFileTool) Name() string { return "read_file" }
-func (this *ReadFileTool) Description() string {
-	return "Read the contents of a file"
-}
-func (this *ReadFileTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"path": map[string]interface{}{
-				"type":        "string",
-				"description": "Path to the file to read",
-			},
-		},
-		"required": []string{"path"},
-	}
-}
-func (this *ReadFileTool) RequiresPermission() bool { return false }
-func (this *ReadFileTool) Execute(params map[string]interface{}) (string, error) {
-	path, ok := params["path"].(string)
-	if !ok {
-		return "", fmt.Errorf("path parameter must be a string")
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return string(content), nil
-}
-
-// WriteFileTool implements file writing
-type WriteFileTool struct{}
-
-func (this *WriteFileTool) Name() string { return "write_file" }
-func (this *WriteFileTool) Description() string {
-	return "Write a file. If the file already exists, it will be overwritten."
-}
-func (this *WriteFileTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"path": map[string]interface{}{
-				"type":        "string",
-				"description": "Path to the file to write.",
-			},
-			"content": map[string]interface{}{
-				"type":        "string",
-				"description": "The content to write to the file.",
-			},
-		},
-		"required": []string{"path"},
-	}
-}
-func (this *WriteFileTool) Execute(params map[string]interface{}) (string, error) {
-	path, ok := params["path"].(string)
-	if !ok {
-		return "", errors.New("path parameter must be a string")
-	}
-	replace, ok := params["content"].(string)
-	if !ok {
-		return "", errors.New("content parameter must be a string")
-	}
-	return replace, os.WriteFile(path, []byte(replace), 0644)
-}
-func (this *WriteFileTool) RequiresPermission() bool { return true }
-
-// ModifyFileTool implements file modifications
-type ModifyFileTool struct{}
-
-func (this *ModifyFileTool) Name() string { return "modify_file" }
-func (this *ModifyFileTool) Description() string {
-	return "Modify a file by replacing the portion provided."
-}
-func (this *ModifyFileTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"path": map[string]interface{}{
-				"type":        "string",
-				"description": "Path to the file to write (must already exist).",
-			},
-			"search": map[string]interface{}{
-				"type":        "string",
-				"description": "A search text.",
-			},
-			"replace": map[string]interface{}{
-				"type":        "string",
-				"description": "The replacement text.",
-			},
-		},
-		"required": []string{"path"},
-	}
-}
-func (this *ModifyFileTool) Execute(params map[string]interface{}) (string, error) {
-	path, ok := params["path"].(string)
-	if !ok {
-		return "", errors.New("path parameter must be a string")
-	}
-	search, ok := params["search"].(string)
-	if !ok || search == "" {
-		return "", errors.New("search parameter must be a non-empty string")
-	}
-	replace, ok := params["replace"].(string)
-	if !ok {
-		return "", errors.New("replace parameter must be a string")
-	}
-	fmt.Println("reading file:", path)
-	raw, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	fmt.Println("Contains search?", strings.Contains(string(raw), search))
-	content := strings.ReplaceAll(string(raw), search, replace)
-	fmt.Println("writing file:", path)
-	err = os.WriteFile(path, []byte(content), 0644)
-	fmt.Println("Length of old:", len(string(raw)))
-	fmt.Println("Length of new:", len(content))
-	return content, err
-}
-func (this *ModifyFileTool) RequiresPermission() bool { return true }
-
-// ListDirectoryTool implements directory listing
-type ListDirectoryTool struct{}
-
-func (this *ListDirectoryTool) Name() string { return "list_directory" }
-func (this *ListDirectoryTool) Description() string {
-	return "List files and directories in a given path"
-}
-func (this *ListDirectoryTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"path": map[string]interface{}{
-				"type":        "string",
-				"description": "Path to the directory to list",
-			},
-		},
-		"required": []string{"path"},
-	}
-}
-func (this *ListDirectoryTool) RequiresPermission() bool { return false }
-func (this *ListDirectoryTool) Execute(params map[string]interface{}) (string, error) {
-	path, ok := params["path"].(string)
-	if !ok || path == "" {
-		return "", fmt.Errorf("path parameter must be a non-empty string")
-	}
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return "", err
-	}
-	var result strings.Builder
-	for _, entry := range entries {
-		info, _ := entry.Info()
-		if entry.IsDir() {
-			result.WriteString(fmt.Sprintf("[DIR]  %s\n", entry.Name()))
-		} else {
-			result.WriteString(fmt.Sprintf("[FILE] %s (%d bytes)\n", entry.Name(), info.Size()))
-		}
-	}
-	return result.String(), nil
-}
-
-// ListTreeTool implements recursive directory tree listing
-type ListTreeTool struct{}
-
-func (this *ListTreeTool) Name() string { return "list_tree" }
-func (this *ListTreeTool) Description() string {
-	return "List all files and directories recursively in a tree structure"
-}
-func (this *ListTreeTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"path": map[string]interface{}{
-				"type":        "string",
-				"description": "Root path to list from",
-			},
-			"max_depth": map[string]interface{}{
-				"type":        "number",
-				"description": "Maximum depth to traverse (optional, default 5)",
-			},
-		},
-		"required": []string{"path"},
-	}
-}
-func (this *ListTreeTool) RequiresPermission() bool { return false }
-func (this *ListTreeTool) Execute(params map[string]interface{}) (string, error) {
-	path, ok := params["path"].(string)
-	if !ok || path == "" {
-		return "", fmt.Errorf("path parameter must be a non-empty string")
-	}
-	maxDepth := 5
-	if d, ok := params["max_depth"].(float64); ok {
-		maxDepth = int(d)
-	}
-	var result strings.Builder
-	err := this.walkTree(path, "", 0, maxDepth, &result)
-	if err != nil {
-		return "", err
-	}
-	return result.String(), nil
-}
-func (this *ListTreeTool) walkTree(path, prefix string, depth, maxDepth int, result *strings.Builder) error {
-	if depth > maxDepth {
-		return nil
-	}
-	base := filepath.Base(path)
-	if base == ".git" || base == ".idea" || base == ".claude" {
-		return nil
-	}
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return err
-	}
-	for i, entry := range entries {
-		isLast := i == len(entries)-1
-		connector := "├── "
-		if isLast {
-			connector = "└── "
-		}
-		if entry.IsDir() {
-			result.WriteString(fmt.Sprintf("%s%s%s/\n", prefix, connector, entry.Name()))
-			newPrefix := prefix
-			if isLast {
-				newPrefix += "    "
-			} else {
-				newPrefix += "│   "
-			}
-			err = this.walkTree(filepath.Join(path, entry.Name()), newPrefix, depth+1, maxDepth, result)
-			if err != nil {
-				return err
-			}
-		} else {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", prefix, connector, entry.Name()))
-		}
-	}
-	return nil
-}
-
-// RunCommandTool implements shell command execution
-type RunCommandTool struct{}
-
-func (this *RunCommandTool) Name() string { return "run_command" }
-func (this *RunCommandTool) Description() string {
-	return "Execute a shell command and return its output"
-}
-func (this *RunCommandTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"command": map[string]interface{}{
-				"type":        "string",
-				"description": "The shell command to execute",
-			},
-		},
-		"required": []string{"command"},
-	}
-}
-func (this *RunCommandTool) RequiresPermission() bool { return true }
-func (this *RunCommandTool) Execute(params map[string]interface{}) (string, error) {
-	command, ok := params["command"].(string)
-	if !ok || command == "" {
-		return "", fmt.Errorf("command parameter must be a non-empty string")
-	}
-	cmd := exec.Command("sh", "-c", command)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(output), fmt.Errorf("command failed: %v\n%s", err, string(output))
-	}
-	return string(output), nil
-}
-
-// ExecutePythonTool implements Python script execution
-type ExecutePythonTool struct{}
-
-func (this *ExecutePythonTool) Name() string { return "execute_python" }
-func (this *ExecutePythonTool) Description() string {
-	return "Execute a Python script and return its output"
-}
-func (this *ExecutePythonTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"script": map[string]interface{}{
-				"type":        "string",
-				"description": "The Python code to execute",
-			},
-		},
-		"required": []string{"script"},
-	}
-}
-func (this *ExecutePythonTool) RequiresPermission() bool { return true }
-func (this *ExecutePythonTool) Execute(params map[string]interface{}) (string, error) {
-	script, ok := params["script"].(string)
-	if !ok || script == "" {
-		return "", fmt.Errorf("script parameter must be a non-empty string")
-	}
-	cmd := exec.Command("python3", "-c", script)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(output), fmt.Errorf("python execution failed: %v\n%s", err, string(output))
-	}
-	return string(output), nil
 }
