@@ -46,6 +46,7 @@ func main() {
 	agent := NewAgent(config.Model, config.OllamaURL)
 	agent.RegisterTool(&ReadFileTool{})
 	agent.RegisterTool(&WriteFileTool{})
+	agent.RegisterTool(&ModifyFileTool{})
 	agent.RegisterTool(&ListDirectoryTool{})
 	agent.RegisterTool(&ListTreeTool{})
 	agent.RegisterTool(&RunCommandTool{})
@@ -375,12 +376,12 @@ func (this *ReadFileTool) Execute(params map[string]interface{}) (string, error)
 	return string(content), nil
 }
 
-type WriteFileTool struct {
-}
+// WriteFileTool implements file writing
+type WriteFileTool struct{}
 
 func (this *WriteFileTool) Name() string { return "write_file" }
 func (this *WriteFileTool) Description() string {
-	return "Write a file, either by overwriting the entire contents or just replacing a portion."
+	return "Write a file. If the file already exists, it will be overwritten."
 }
 func (this *WriteFileTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
@@ -390,13 +391,9 @@ func (this *WriteFileTool) Parameters() map[string]interface{} {
 				"type":        "string",
 				"description": "Path to the file to write.",
 			},
-			"search": map[string]interface{}{
-				"type":        "string",
-				"description": "A string to search for and, if found, replace. Implies that the supplied path already exists.",
-			},
 			"content": map[string]interface{}{
 				"type":        "string",
-				"description": "The text to write; used to replace any content matched by 'search' value, otherwise replaces entire contents of file (if it exists).",
+				"description": "The content to write to the file.",
 			},
 		},
 		"required": []string{"path"},
@@ -407,14 +404,53 @@ func (this *WriteFileTool) Execute(params map[string]interface{}) (string, error
 	if !ok {
 		return "", errors.New("path parameter must be a string")
 	}
-	rawSearch, searchPresent := params["search"]
-	search, ok := rawSearch.(string)
-	if searchPresent && !ok {
-		return "", errors.New("search parameter must be a string")
-	}
 	replace, ok := params["content"].(string)
 	if !ok {
 		return "", errors.New("content parameter must be a string")
+	}
+	return replace, os.WriteFile(path, []byte(replace), 0644)
+}
+func (this *WriteFileTool) RequiresPermission() bool { return true }
+
+// ModifyFileTool implements file modifications
+type ModifyFileTool struct{}
+
+func (this *ModifyFileTool) Name() string { return "modify_file" }
+func (this *ModifyFileTool) Description() string {
+	return "Modify a file by replacing the portion provided."
+}
+func (this *ModifyFileTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Path to the file to write (must already exist).",
+			},
+			"search": map[string]interface{}{
+				"type":        "string",
+				"description": "A search text.",
+			},
+			"replace": map[string]interface{}{
+				"type":        "string",
+				"description": "The replacement text.",
+			},
+		},
+		"required": []string{"path"},
+	}
+}
+func (this *ModifyFileTool) Execute(params map[string]interface{}) (string, error) {
+	path, ok := params["path"].(string)
+	if !ok {
+		return "", errors.New("path parameter must be a string")
+	}
+	search, ok := params["search"].(string)
+	if !ok || search == "" {
+		return "", errors.New("search parameter must be a non-empty string")
+	}
+	replace, ok := params["replace"].(string)
+	if !ok {
+		return "", errors.New("replace parameter must be a string")
 	}
 	fmt.Println("reading file:", path)
 	raw, err := os.ReadFile(path)
@@ -429,7 +465,7 @@ func (this *WriteFileTool) Execute(params map[string]interface{}) (string, error
 	fmt.Println("Length of new:", len(content))
 	return content, err
 }
-func (this *WriteFileTool) RequiresPermission() bool { return true }
+func (this *ModifyFileTool) RequiresPermission() bool { return true }
 
 // ListDirectoryTool implements directory listing
 type ListDirectoryTool struct{}
