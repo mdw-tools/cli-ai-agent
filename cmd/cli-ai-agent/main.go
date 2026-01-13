@@ -47,8 +47,7 @@ func main() {
 	agent.RegisterTool(&tools.ReadFileTool{})
 	agent.RegisterTool(&tools.WriteFileTool{})
 	agent.RegisterTool(&tools.ModifyFileTool{})
-	agent.RegisterTool(&tools.ListDirectoryTool{})
-	agent.RegisterTool(&tools.ListTreeTool{})
+	agent.RegisterTool(&tools.ReadAllFilesInDirectoryTool{})
 	agent.RegisterTool(&tools.RunCommandTool{})
 	agent.RegisterTool(&tools.ExecutePythonTool{})
 

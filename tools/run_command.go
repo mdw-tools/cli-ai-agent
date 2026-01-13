@@ -8,7 +8,7 @@ import (
 // RunCommandTool implements shell command execution
 type RunCommandTool struct{}
 
-func (this *RunCommandTool) Name() string { return "run_command" }
+func (this *RunCommandTool) Name() string { return "run_shell_command" }
 func (this *RunCommandTool) Description() string {
 	return "Execute a shell command and return its output"
 }
